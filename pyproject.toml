@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clip-person-search"
+version = "0.1.0"
+description = "A starter text-to-person image retrieval project built on OpenCLIP."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "open_clip_torch>=2.24,<3",
+    "Pillow>=10",
+]
+
+[project.scripts]
+person-search = "person_search.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
