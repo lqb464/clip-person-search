@@ -11,6 +11,7 @@ import torch
 from PIL import Image, UnidentifiedImageError
 
 from .model import PRETRAINED, MODEL_NAME, encode_image, encode_images, encode_text, load_model
+from .training import evaluate_reranked, train_reranker
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
@@ -19,6 +20,22 @@ def command_download(_args: argparse.Namespace) -> int:
     print(f"Loading {MODEL_NAME} ({PRETRAINED}); first run downloads and caches weights.")
     _model, _preprocess, _tokenizer, device = load_model()
     print(f"Model ready on {device}.")
+    return 0
+
+
+def command_train_reranker(args: argparse.Namespace) -> int:
+    train_reranker(
+        root=args.root,
+        clip_checkpoint=args.clip_checkpoint,
+        output=args.output,
+        device=args.device,
+        batch_size=args.batch_size,
+        epochs=args.epochs,
+        learning_rate=args.learning_rate,
+        num_workers=args.num_workers,
+        seed=args.seed,
+        model_name=args.clip_model,
+    )
     return 0
 
 
@@ -77,6 +94,28 @@ def command_search(args: argparse.Namespace) -> int:
 
 
 def command_evaluate_rstpreid(args: argparse.Namespace) -> int:
+    if args.reranker_checkpoint:
+        if not args.clip_checkpoint:
+            raise SystemExit("--clip-checkpoint is required when --reranker-checkpoint is used")
+        summary = evaluate_reranked(
+            root=args.root,
+            clip_checkpoint=args.clip_checkpoint,
+            reranker_checkpoint=args.reranker_checkpoint,
+            top_m=args.rerank_top_m,
+            batch_size=args.batch_size,
+            device=args.device,
+            split=args.split,
+            per_query_output=args.per_query_output,
+            model_name=args.clip_model,
+        )
+        print(json.dumps(summary, indent=2))
+        if args.output:
+            output = Path(args.output).expanduser()
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+            print(f"Saved metrics: {output}")
+        return 0
+
     root = Path(args.root).expanduser()
     annotation_path = root / "data_captions.json"
     image_dir = root / "imgs"
@@ -86,9 +125,9 @@ def command_evaluate_rstpreid(args: argparse.Namespace) -> int:
             f"Not found under: {root}"
         )
     records = json.loads(annotation_path.read_text(encoding="utf-8"))
-    test_records = [r for r in records if str(r.get("split", "")).lower() == "test"]
+    test_records = [r for r in records if str(r.get("split", "")).lower() == args.split]
     if not test_records:
-        raise SystemExit("No records with split='test' found in data_captions.json")
+        raise SystemExit(f"No records with split={args.split!r} found in data_captions.json")
 
     image_paths: list[Path] = []
     image_pids: list[int] = []
@@ -105,7 +144,12 @@ def command_evaluate_rstpreid(args: argparse.Namespace) -> int:
     if missing:
         raise SystemExit(f"{len(missing)} image files referenced by annotations are missing; first: {missing[0]}")
 
-    model, preprocess, tokenizer, device = load_model()
+    model, preprocess, tokenizer, device = load_model(
+        device=args.device,
+        checkpoint=args.clip_checkpoint,
+        model_name=args.clip_model,
+        pretrained=PRETRAINED if args.clip_checkpoint is None else None,
+    )
     image_features_list: list[torch.Tensor] = []
     batch_size = args.batch_size
     for start in range(0, len(image_paths), batch_size):
@@ -139,8 +183,9 @@ def command_evaluate_rstpreid(args: argparse.Namespace) -> int:
         average_precisions.append(precisions.mean().item() if len(relevant_ranks) else 0.0)
     metrics["mAP"] = sum(average_precisions) / len(average_precisions) * 100
 
-    print(f"Model: {MODEL_NAME} ({PRETRAINED}) | device: {device}")
-    print(f"Test identities: {len(set(image_pids))} | images: {len(image_pids)} | captions: {len(captions)}")
+    model_source = args.clip_checkpoint or PRETRAINED
+    print(f"Model: {args.clip_model} ({model_source}) | device: {device}")
+    print(f"{args.split.title()} identities: {len(set(image_pids))} | images: {len(image_pids)} | captions: {len(captions)}")
     for name, value in metrics.items():
         print(f"{name}: {value:.2f}%")
     if args.output:
@@ -171,8 +216,28 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate = subparsers.add_parser("evaluate-rstpreid", help="evaluate zero-shot retrieval on the RSTPReid test split")
     evaluate.add_argument("--root", required=True, help="RSTPReid folder containing imgs/ and data_captions.json")
     evaluate.add_argument("--batch-size", type=int, default=32, help="inference batch size")
+    evaluate.add_argument("--split", choices=("val", "test"), default="test", help="benchmark split to evaluate")
+    evaluate.add_argument("--device", help="device such as cuda or cpu; defaults to CUDA when available")
+    evaluate.add_argument("--clip-model", default=MODEL_NAME, help="OpenCLIP architecture matching the checkpoint")
+    evaluate.add_argument("--clip-checkpoint", help="fine-tuned CLIP .pth checkpoint; omit for the public LAION weights")
+    evaluate.add_argument("--reranker-checkpoint", help="trained image-text matcher checkpoint; enables reranking")
+    evaluate.add_argument("--rerank-top-m", type=int, default=100, help="rerank the CLIP top M; use 0 to rerank the full gallery")
+    evaluate.add_argument("--per-query-output", help="optional CSV with per-query top-1/AP changes")
     evaluate.add_argument("--output", help="optional JSON path for metrics")
     evaluate.set_defaults(handler=command_evaluate_rstpreid)
+
+    train = subparsers.add_parser("train-reranker-rstpreid", help="train a token-level image-caption matcher on RSTPReid train/val")
+    train.add_argument("--root", required=True, help="RSTPReid folder containing imgs/ and data_captions.json")
+    train.add_argument("--clip-checkpoint", required=True, help="fine-tuned CLIP checkpoint used by retrieval and matcher")
+    train.add_argument("--clip-model", default=MODEL_NAME, help="OpenCLIP architecture matching the checkpoint")
+    train.add_argument("--output", required=True, help="where to save the best validation reranker checkpoint")
+    train.add_argument("--device", help="device such as cuda or cpu; defaults to CUDA when available")
+    train.add_argument("--batch-size", type=int, default=32)
+    train.add_argument("--epochs", type=int, default=5)
+    train.add_argument("--learning-rate", type=float, default=2e-4)
+    train.add_argument("--num-workers", type=int, default=0)
+    train.add_argument("--seed", type=int, default=7)
+    train.set_defaults(handler=command_train_reranker)
     return parser
 
 
@@ -182,6 +247,10 @@ def main() -> int:
         raise SystemExit("--top-k must be at least 1")
     if getattr(args, "batch_size", 1) < 1:
         raise SystemExit("--batch-size must be at least 1")
+    if getattr(args, "epochs", 1) < 1:
+        raise SystemExit("--epochs must be at least 1")
+    if getattr(args, "rerank_top_m", 1) < 0:
+        raise SystemExit("--rerank-top-m must be 0 (full gallery) or positive")
     return args.handler(args)
 
 
