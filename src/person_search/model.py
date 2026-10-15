@@ -28,6 +28,12 @@ def load_model(
     if checkpoint is not None:
         state = _read_state_dict(checkpoint)
         missing, unexpected = model.load_state_dict(state, strict=False)
+        # Some fine-tuned CLIP checkpoints save the encoder under a wrapper
+        # module and omit logit_scale. The latter is only used to scale the
+        # contrastive logits in ``forward``; this project uses encode_image /
+        # encode_text and their token features, so the initialized value is
+        # irrelevant for retrieval.
+        missing = [key for key in missing if key != "logit_scale"]
         if missing or unexpected:
             raise ValueError(
                 "Checkpoint does not match the requested OpenCLIP architecture "
@@ -65,7 +71,13 @@ def _read_state_dict(checkpoint: str | Path) -> dict[str, torch.Tensor]:
         changed = True
         while changed:
             changed = False
-            for prefix in ("module.", "model.", "clip_model.", "clip."):
+            for prefix in (
+                "module.",
+                "model.",
+                "base_model.",
+                "clip_model.",
+                "clip.",
+            ):
                 if clean_key.startswith(prefix):
                     clean_key = clean_key[len(prefix) :]
                     changed = True
