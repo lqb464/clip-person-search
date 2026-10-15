@@ -28,6 +28,16 @@ def load_model(
     )
     if checkpoint is not None:
         state = _read_state_dict(checkpoint)
+        # The RSTPReid CLIP baseline checkpoint also stores task-specific
+        # classification heads. They are not part of OpenCLIP and are not
+        # used by this retrieval pipeline; the wrapped base_model weights
+        # contain the complete CLIP encoders.
+        auxiliary_heads = ("classifier_bge.", "mlp_bge.", "classifier_id_bge.")
+        state = {
+            key: value
+            for key, value in state.items()
+            if not key.startswith(auxiliary_heads)
+        }
         missing, unexpected = model.load_state_dict(state, strict=False)
         # Some fine-tuned CLIP checkpoints save the encoder under a wrapper
         # module and omit logit_scale. The latter is only used to scale the
