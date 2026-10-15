@@ -96,6 +96,7 @@ def train_reranker(
     num_workers: int = 0,
     seed: int = 7,
     model_name: str = MODEL_NAME,
+    image_size: tuple[int, int] = (384, 128),
 ):
     random.seed(seed)
     torch.manual_seed(seed)
@@ -120,7 +121,10 @@ def train_reranker(
         pin_memory=torch.cuda.is_available(),
     )
     model, preprocess, tokenizer, device = load_model(
-        device=device, checkpoint=clip_checkpoint, model_name=model_name
+        device=device,
+        checkpoint=clip_checkpoint,
+        model_name=model_name,
+        image_size=image_size,
     )
     for parameter in model.parameters():
         parameter.requires_grad_(False)
@@ -202,6 +206,7 @@ def train_reranker(
                     "num_heads": 8,
                     "dropout": 0.1,
                     "clip_model_name": model_name,
+                    "image_size": image_size,
                     "clip_checkpoint": str(Path(clip_checkpoint).expanduser()),
                     "epoch": epoch,
                     "val_loss": val_loss,
@@ -238,6 +243,7 @@ def evaluate_reranked(
     split: str = "test",
     per_query_output: str | Path | None = None,
     model_name: str = MODEL_NAME,
+    image_size: tuple[int, int] = (384, 128),
 ):
     records = load_records(root, split)
     root = Path(root).expanduser()
@@ -249,7 +255,10 @@ def evaluate_reranked(
             captions.append(str(caption))
             query_pids.append(int(record["id"]))
     model, preprocess, tokenizer, device = load_model(
-        device=device, checkpoint=clip_checkpoint, model_name=model_name
+        device=device,
+        checkpoint=clip_checkpoint,
+        model_name=model_name,
+        image_size=image_size,
     )
     matcher, matcher_metadata = load_reranker(str(reranker_checkpoint), device)
     if matcher_metadata.get("clip_model_name", model_name) != model_name:

@@ -2,7 +2,7 @@
 
 Project cho bài toán tìm ảnh người từ mô tả tự nhiên trên RSTPReid. Pipeline gồm CLIP fine-tuned để lấy top ứng viên và một cross-modal token matcher để rerank top 100. Matcher học phân loại cặp ảnh-caption khớp/không khớp; backbone CLIP được giữ frozen trong giai đoạn đầu, còn fusion Transformer và classifier được train trên RSTPReid.
 
-Mặc định model là OpenCLIP `ViT-B-32`. Checkpoint CLIP phải tương thích với kiến trúc đó (hoặc truyền kiến trúc khác bằng `--clip-model`). Đặt `rstp.pth` tại `models/rstp.pth` hoặc truyền đường dẫn trực tiếp. Không commit checkpoint, dữ liệu hay output vào Git.
+Model chung mặc định là OpenCLIP `ViT-B-32`. Với checkpoint TBPS RSTPReid được cung cấp, dùng `ViT-B-16` và kích thước ảnh `384 128` để khớp patch embedding và positional embedding của checkpoint. Checkpoint CLIP phải tương thích với kiến trúc và kích thước ảnh đã chọn. Đặt `rstp.pth` tại `models/rstp.pth` hoặc truyền đường dẫn trực tiếp. Không commit checkpoint, dữ liệu hay output vào Git.
 
 ## Cài đặt
 
@@ -58,7 +58,8 @@ Lệnh sau dùng CLIP checkpoint đã fine-tune trên RSTPReid. Reranker chỉ h
 person-search train-reranker-rstpreid `
   --root .\data\tbps-benchmark\benchmark\RSTPReid `
   --clip-checkpoint .\models\rstp.pth `
-  --clip-model ViT-B-32 `
+  --clip-model ViT-B-16 `
+  --image-size 384 128 `
   --output .\outputs\rstpreid-reranker.pth `
   --batch-size 32 `
   --epochs 5
@@ -74,6 +75,8 @@ Mỗi positive là ảnh và caption ghép trong dữ liệu. Negative là capti
 person-search evaluate-rstpreid `
   --root .\data\tbps-benchmark\benchmark\RSTPReid `
   --clip-checkpoint .\models\rstp.pth `
+  --clip-model ViT-B-16 `
+  --image-size 384 128 `
   --reranker-checkpoint .\outputs\rstpreid-reranker.pth `
   --rerank-top-m 100 `
   --batch-size 32 `

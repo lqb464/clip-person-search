@@ -16,6 +16,7 @@ def load_model(
     checkpoint: str | Path | None = None,
     model_name: str = MODEL_NAME,
     pretrained: str | None = PRETRAINED,
+    image_size: int | tuple[int, int] | None = None,
 ):
     """Load OpenCLIP, optionally restoring a fine-tuned checkpoint."""
     if device is None:
@@ -23,7 +24,7 @@ def load_model(
     if checkpoint is not None:
         pretrained = None
     model, _, preprocess = open_clip.create_model_and_transforms(
-        model_name, pretrained=pretrained
+        model_name, pretrained=pretrained, force_image_size=image_size
     )
     if checkpoint is not None:
         state = _read_state_dict(checkpoint)
