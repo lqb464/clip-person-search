@@ -6,6 +6,7 @@ import torch
 import open_clip
 from PIL import Image
 from pathlib import Path
+from torchvision import transforms
 
 MODEL_NAME = "ViT-B-32"
 PRETRAINED = "laion2b_s34b_b79k"
@@ -17,6 +18,7 @@ def load_model(
     model_name: str = MODEL_NAME,
     pretrained: str | None = PRETRAINED,
     image_size: int | tuple[int, int] | None = None,
+    image_preprocess: str = "open_clip",
 ):
     """Load OpenCLIP, optionally restoring a fine-tuned checkpoint."""
     if device is None:
@@ -38,19 +40,39 @@ def load_model(
             for key, value in state.items()
             if not key.startswith(auxiliary_heads)
         }
-        missing, unexpected = model.load_state_dict(state, strict=False)
-        # Some fine-tuned CLIP checkpoints save the encoder under a wrapper
-        # module and omit logit_scale. The latter is only used to scale the
-        # contrastive logits in ``forward``; this project uses encode_image /
-        # encode_text and their token features, so the initialized value is
-        # irrelevant for retrieval.
-        missing = [key for key in missing if key != "logit_scale"]
-        if missing or unexpected:
+        model_state = model.state_dict()
+        # Checkpoints from TBPS/ITSELF wrappers include task-specific heads.
+        # Keep only tensors belonging to the requested CLIP architecture, then
+        # require every encoder tensor to be present with the expected shape.
+        matched = {key: value for key, value in state.items() if key in model_state}
+        mismatched = [
+            (key, tuple(value.shape), tuple(model_state[key].shape))
+            for key, value in matched.items()
+            if value.shape != model_state[key].shape
+        ]
+        missing = [key for key in model_state if key not in matched and key != "logit_scale"]
+        if mismatched or missing:
             raise ValueError(
-                "Checkpoint does not match the requested OpenCLIP architecture "
-                f"{model_name!r}. Missing keys: {missing[:8]}; "
-                f"unexpected keys: {unexpected[:8]}"
+                "Checkpoint does not contain a complete compatible CLIP encoder "
+                f"for {model_name!r}. Missing keys: {missing[:8]}; "
+                f"shape mismatches (key, checkpoint, model): {mismatched[:5]}"
             )
+        model.load_state_dict(matched, strict=False)
+    if image_preprocess == "itself":
+        if image_size is None:
+            raise ValueError("image_size must be set for ITSELF preprocessing")
+        preprocess = transforms.Compose(
+            [
+                transforms.Resize(tuple(image_size), interpolation=transforms.InterpolationMode.BILINEAR),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=(0.48145466, 0.4578275, 0.40821073),
+                    std=(0.26862954, 0.26130258, 0.27577711),
+                ),
+            ]
+        )
+    elif image_preprocess != "open_clip":
+        raise ValueError("image_preprocess must be 'open_clip' or 'itself'")
     model = model.to(device).eval()
     tokenizer = open_clip.get_tokenizer(model_name)
     return model, preprocess, tokenizer, device

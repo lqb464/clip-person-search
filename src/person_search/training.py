@@ -97,6 +97,7 @@ def train_reranker(
     seed: int = 7,
     model_name: str = MODEL_NAME,
     image_size: tuple[int, int] = (384, 128),
+    image_preprocess: str = "open_clip",
 ):
     random.seed(seed)
     torch.manual_seed(seed)
@@ -125,6 +126,7 @@ def train_reranker(
         checkpoint=clip_checkpoint,
         model_name=model_name,
         image_size=image_size,
+        image_preprocess=image_preprocess,
     )
     for parameter in model.parameters():
         parameter.requires_grad_(False)
@@ -207,6 +209,7 @@ def train_reranker(
                     "dropout": 0.1,
                     "clip_model_name": model_name,
                     "image_size": image_size,
+                    "image_preprocess": image_preprocess,
                     "clip_checkpoint": str(Path(clip_checkpoint).expanduser()),
                     "epoch": epoch,
                     "val_loss": val_loss,
@@ -244,6 +247,7 @@ def evaluate_reranked(
     per_query_output: str | Path | None = None,
     model_name: str = MODEL_NAME,
     image_size: tuple[int, int] = (384, 128),
+    image_preprocess: str = "open_clip",
 ):
     records = load_records(root, split)
     root = Path(root).expanduser()
@@ -259,6 +263,7 @@ def evaluate_reranked(
         checkpoint=clip_checkpoint,
         model_name=model_name,
         image_size=image_size,
+        image_preprocess=image_preprocess,
     )
     matcher, matcher_metadata = load_reranker(str(reranker_checkpoint), device)
     if matcher_metadata.get("clip_model_name", model_name) != model_name:

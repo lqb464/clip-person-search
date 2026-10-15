@@ -36,6 +36,7 @@ def command_train_reranker(args: argparse.Namespace) -> int:
         seed=args.seed,
         model_name=args.clip_model,
         image_size=tuple(args.image_size),
+        image_preprocess=args.image_preprocess,
     )
     return 0
 
@@ -109,6 +110,7 @@ def command_evaluate_rstpreid(args: argparse.Namespace) -> int:
             per_query_output=args.per_query_output,
             model_name=args.clip_model,
             image_size=tuple(args.image_size),
+            image_preprocess=args.image_preprocess,
         )
         print(json.dumps(summary, indent=2))
         if args.output:
@@ -152,6 +154,7 @@ def command_evaluate_rstpreid(args: argparse.Namespace) -> int:
         model_name=args.clip_model,
         pretrained=PRETRAINED if args.clip_checkpoint is None else None,
         image_size=tuple(args.image_size),
+        image_preprocess=args.image_preprocess,
     )
     image_features_list: list[torch.Tensor] = []
     batch_size = args.batch_size
@@ -223,6 +226,7 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--device", help="device such as cuda or cpu; defaults to CUDA when available")
     evaluate.add_argument("--clip-model", default=MODEL_NAME, help="OpenCLIP architecture matching the checkpoint")
     evaluate.add_argument("--image-size", nargs=2, type=int, metavar=("HEIGHT", "WIDTH"), default=(384, 128), help="input image height and width; RSTPReid default: 384 128")
+    evaluate.add_argument("--image-preprocess", choices=("open_clip", "itself"), default="open_clip", help="ITSELF uses direct resize to 384x128 instead of CLIP center crop")
     evaluate.add_argument("--clip-checkpoint", help="fine-tuned CLIP .pth checkpoint; omit for the public LAION weights")
     evaluate.add_argument("--reranker-checkpoint", help="trained image-text matcher checkpoint; enables reranking")
     evaluate.add_argument("--rerank-top-m", type=int, default=100, help="rerank the CLIP top M; use 0 to rerank the full gallery")
@@ -235,6 +239,7 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--clip-checkpoint", required=True, help="fine-tuned CLIP checkpoint used by retrieval and matcher")
     train.add_argument("--clip-model", default=MODEL_NAME, help="OpenCLIP architecture matching the checkpoint")
     train.add_argument("--image-size", nargs=2, type=int, metavar=("HEIGHT", "WIDTH"), default=(384, 128), help="input image height and width; RSTPReid default: 384 128")
+    train.add_argument("--image-preprocess", choices=("open_clip", "itself"), default="open_clip", help="ITSELF uses direct resize to 384x128 instead of CLIP center crop")
     train.add_argument("--output", required=True, help="where to save the best validation reranker checkpoint")
     train.add_argument("--device", help="device such as cuda or cpu; defaults to CUDA when available")
     train.add_argument("--batch-size", type=int, default=32)

@@ -1,8 +1,10 @@
-# Text-based Person Search (CLIP + reranking)
+# Text-based Person Search (ITSELF + Identity sampler + reranking)
 
-Project cho bài toán tìm ảnh người từ mô tả tự nhiên trên RSTPReid. Pipeline gồm CLIP fine-tuned để lấy top ứng viên và một cross-modal token matcher để rerank top 100. Matcher học phân loại cặp ảnh-caption khớp/không khớp; backbone CLIP được giữ frozen trong giai đoạn đầu, còn fusion Transformer và classifier được train trên RSTPReid.
+Project thử nghiệm text-based person search trên RSTPReid theo hai giai đoạn: train retrieval model **ITSELF + Identity sampler** từ checkpoint RSTP CLIP, rồi train một cross-modal token matcher để rerank top ứng viên. Reranker học phân loại cặp ảnh-caption cùng identity/khác identity; encoder CLIP giữ frozen trong giai đoạn này, còn fusion Transformer và classifier được train trên RSTPReid.
 
-Model chung mặc định là OpenCLIP `ViT-B-32`. Với checkpoint TBPS RSTPReid được cung cấp, dùng `ViT-B-16` và kích thước ảnh `384 128` để khớp patch embedding và positional embedding của checkpoint. Checkpoint CLIP phải tương thích với kiến trúc và kích thước ảnh đã chọn. Đặt `rstp.pth` tại `models/rstp.pth` hoặc truyền đường dẫn trực tiếp. Không commit checkpoint, dữ liệu hay output vào Git.
+Notebook Kaggle hoàn chỉnh: [`notebooks/itself-identity-reranker-rstpreid.ipynb`](notebooks/itself-identity-reranker-rstpreid.ipynb). Notebook clone implementation ITSELF từ [TBPS-Sampler](https://github.com/HoangVo-Prog/tbps-sampler), chọn `val` để chọn checkpoint, train reranker, rồi so sánh baseline/rerank trên test và xuất thống kê query bị hại. Cấu hình dùng ViT-B/16, ảnh 384×128 và direct resize đúng như ITSELF.
+
+Lưu ý phạm vi: bước reranker hiện lấy global CLIP similarity để tạo candidate top M, sau đó dùng token matcher chấm lại. Đây chưa phải scoring `global+GRAB` đầy đủ của ITSELF; kết quả reranker cần được hiểu là thí nghiệm trên global retrieval của encoder đã train bằng ITSELF. Checkpoint, dữ liệu và output Kaggle không được commit vào Git.
 
 ## Cài đặt
 
@@ -48,9 +50,9 @@ python -m pip install kaggle
 kaggle datasets download -d hoanggv/tbps-benchmark -p .\data --unzip
 ```
 
-Trỏ `--root` tới thư mục có `imgs/` và `data_captions.json`, ví dụ `.data	bps-benchmarkenchmarkRSTPReid`.
+Trỏ `--root` tới thư mục có `imgs/` và `data_captions.json`, ví dụ `data\tbps-benchmark\benchmark\RSTPReid`.
 
-## Train reranker
+## Train reranker với checkpoint đã có
 
 Lệnh sau dùng CLIP checkpoint đã fine-tune trên RSTPReid. Reranker chỉ học trên `train`; `val` được dùng để chọn checkpoint tốt nhất. `test` không được dùng trong quá trình train:
 
@@ -84,7 +86,9 @@ person-search evaluate-rstpreid `
   --per-query-output .\outputs\rstpreid-rerank-per-query.csv
 ```
 
-Reranker sắp thứ tự lại top M ứng viên theo CLIP; phần còn lại giữ nguyên thứ tự CLIP. `--rerank-top-m 0` rerank toàn bộ gallery (tốn thời gian hơn). Reranking không thể đưa ảnh đúng vào top M nếu CLIP đã xếp ảnh đó ngoài pool; metrics R@K sau rerank vì vậy cần được đọc cùng baseline Recall@M.
+Reranker sắp thứ tự lại top M ứng viên theo global CLIP; phần còn lại giữ nguyên thứ tự. `--rerank-top-m 0` rerank toàn bộ gallery (tốn thời gian hơn). Reranking không thể đưa ảnh đúng vào top M nếu baseline đã xếp ảnh đó ngoài pool; metrics R@K sau rerank vì vậy cần được đọc cùng baseline Recall@M.
+
+Với checkpoint ITSELF, thêm `--image-preprocess itself` ở cả lệnh train và evaluate. Tùy chọn này resize trực tiếp ảnh về 384×128 như upstream ITSELF; `open_clip` dùng preprocessing/crop mặc định khác.
 
 Để đo riêng baseline với đúng checkpoint, bỏ `--reranker-checkpoint`. Có thể chạy `--split val` để xem validation metrics, nhưng chỉ dùng test một lần cho báo cáo cuối. Nếu Kaggle đóng gói thư mục khác, thay đường dẫn `--root` cho phù hợp.
 
