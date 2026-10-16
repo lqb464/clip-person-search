@@ -7,7 +7,7 @@ from torch import nn
 
 
 class ImageTextMatcher(nn.Module):
-    """Fuse frozen CLIP image/text tokens and classify whether they match."""
+    """Fuse CLIP image/text tokens and classify whether they match."""
 
     def __init__(
         self,

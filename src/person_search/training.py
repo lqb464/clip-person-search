@@ -98,6 +98,7 @@ def train_reranker(
     model_name: str = MODEL_NAME,
     image_size: tuple[int, int] = (384, 128),
     image_preprocess: str = "open_clip",
+    encoder_learning_rate: float = 1e-6,
 ):
     random.seed(seed)
     torch.manual_seed(seed)
@@ -129,8 +130,7 @@ def train_reranker(
         image_preprocess=image_preprocess,
     )
     for parameter in model.parameters():
-        parameter.requires_grad_(False)
-    model.eval()
+        parameter.requires_grad_(True)
 
     text_projection = getattr(model, "text_projection", None)
     if text_projection is None and hasattr(model, "text"):
@@ -139,21 +139,28 @@ def train_reranker(
         raise TypeError("Could not infer the CLIP text embedding dimension")
     embed_dim = int(text_projection.shape[-1])
     matcher = ImageTextMatcher(embed_dim=embed_dim).to(device)
-    optimizer = torch.optim.AdamW(matcher.parameters(), lr=learning_rate, weight_decay=0.01)
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": model.parameters(), "lr": encoder_learning_rate},
+            {"params": matcher.parameters(), "lr": learning_rate},
+        ],
+        weight_decay=0.01,
+    )
     criterion = torch.nn.BCEWithLogitsLoss()
     best_val_loss = float("inf")
     output_path = Path(output).expanduser()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     for epoch in range(1, epochs + 1):
+        model.train()
         matcher.train()
         train_loss_sum = 0.0
         train_count = 0
         for batch in train_loader:
-            with torch.no_grad():
-                image_tokens, image_mask, text_tokens, text_mask, _ = _encode_train_batch(
-                    model, preprocess, tokenizer, batch, device
-                )
+            optimizer.zero_grad(set_to_none=True)
+            image_tokens, image_mask, text_tokens, text_mask, _ = _encode_train_batch(
+                model, preprocess, tokenizer, batch, device
+            )
             batch_count = len(batch[1])
             labels = torch.cat(
                 (
@@ -163,13 +170,14 @@ def train_reranker(
             )
             logits = matcher(image_tokens, image_mask, text_tokens, text_mask)
             loss = criterion(logits, labels)
-            optimizer.zero_grad(set_to_none=True)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             torch.nn.utils.clip_grad_norm_(matcher.parameters(), 1.0)
             optimizer.step()
             train_loss_sum += loss.item() * len(labels)
             train_count += len(labels)
 
+        model.eval()
         matcher.eval()
         val_loss_sum = 0.0
         val_count = 0
@@ -203,6 +211,10 @@ def train_reranker(
             torch.save(
                 {
                     "state_dict": matcher.state_dict(),
+                    "encoder_state_dict": model.state_dict(),
+                    "encoder_finetuned": True,
+                    "encoder_learning_rate": encoder_learning_rate,
+                    "matcher_learning_rate": learning_rate,
                     "embed_dim": embed_dim,
                     "num_layers": 2,
                     "num_heads": 8,
@@ -236,6 +248,7 @@ def _metrics(rankings: torch.Tensor, gallery_pids: torch.Tensor, query_pids: tor
     return metrics, matches, aps
 
 
+@torch.no_grad()
 def evaluate_reranked(
     root: str | Path,
     clip_checkpoint: str | Path,
@@ -268,6 +281,18 @@ def evaluate_reranked(
     matcher, matcher_metadata = load_reranker(str(reranker_checkpoint), device)
     if matcher_metadata.get("clip_model_name", model_name) != model_name:
         raise ValueError("Reranker and CLIP checkpoint use different model architectures")
+    if tuple(matcher_metadata.get("image_size", image_size)) != tuple(image_size):
+        raise ValueError("Evaluation image size differs from the reranker's training configuration")
+    if matcher_metadata.get("image_preprocess", image_preprocess) != image_preprocess:
+        raise ValueError("Evaluation preprocessing differs from the reranker's training configuration")
+    encoder_state = matcher_metadata.pop("encoder_state_dict", None)
+    if matcher_metadata.get("encoder_finetuned", False) and encoder_state is None:
+        raise ValueError("Fine-tuned reranker checkpoint is missing its encoder weights")
+    if encoder_state is not None:
+        model.load_state_dict(encoder_state, strict=True)
+        del encoder_state
+        print("Restored fine-tuned encoder from the reranker checkpoint.")
+    model.eval()
 
     image_features = []
     image_tokens, image_masks = [], []
@@ -344,6 +369,8 @@ def evaluate_reranked(
     ap_delta = torch.tensor(reranked_aps) - torch.tensor(baseline_aps)
     summary = {
         "split": split,
+        "encoder_source": "reranker_checkpoint" if matcher_metadata.get("encoder_finetuned", False) else "clip_checkpoint",
+        "baseline_description": "Global retrieval using the same encoder as the reranker",
         "num_gallery_images": len(gallery_pids),
         "num_queries": len(captions),
         "rerank_top_m": candidate_count,

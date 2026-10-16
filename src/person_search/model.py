@@ -142,7 +142,6 @@ def encode_images(model, preprocess, images: list[Image.Image], device: str) -> 
     return torch.nn.functional.normalize(features.float(), dim=-1)
 
 
-@torch.no_grad()
 def encode_image_tokens(model, preprocess, images: list[Image.Image], device: str):
     """Return projected ViT tokens and a valid-token mask for an image batch."""
     visual = model.visual
@@ -176,7 +175,6 @@ def encode_image_tokens(model, preprocess, images: list[Image.Image], device: st
     return x.float(), torch.ones(x.shape[:2], dtype=torch.bool, device=device)
 
 
-@torch.no_grad()
 def encode_text_tokens(model, tokenizer, texts: list[str], device: str):
     """Return projected CLIP token states and a padding mask."""
     tokens = tokenizer(texts).to(device)

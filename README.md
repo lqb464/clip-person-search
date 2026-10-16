@@ -1,8 +1,8 @@
 # Text-based Person Search (pretrained ITSELF + reranking)
 
-Pipeline dùng checkpoint có sẵn [GenAI4ELab/itself-rstp](https://huggingface.co/GenAI4ELab/itself-rstp), giữ encoder frozen và train một cross-modal token matcher để rerank top 100 ứng viên trên RSTPReid. Không cần train lại ITSELF hoặc đính kèm model Kaggle `rstp.pth`.
+Pipeline dùng checkpoint có sẵn [GenAI4ELab/itself-rstp](https://huggingface.co/GenAI4ELab/itself-rstp), fine-tune cả encoder ảnh/văn bản và một cross-modal token matcher để rerank top 100 ứng viên trên RSTPReid. Khởi tạo trực tiếp từ checkpoint pretrained; không cần đính kèm model Kaggle `rstp.pth`.
 
-Notebook Kaggle: [`notebooks/itself-identity-reranker-rstpreid.ipynb`](notebooks/itself-identity-reranker-rstpreid.ipynb). Tên file được giữ để các link cũ tiếp tục hoạt động. Đính kèm dataset `tbps-benchmark`, bật Internet và GPU, rồi chạy từ đầu trên phiên mới. Notebook tải `best.pth` (khoảng 1,91 GB), khóa revision `d575c9691832b0a3e88d076faeba9973260956ee`, kiểm tra nạp encoder và trích token trước khi train reranker. Chỉ reranker được train 5 epoch; validation loss chọn checkpoint, test dùng để đo baseline/rerank và thống kê query bị hại.
+Notebook Kaggle: [`notebooks/itself-identity-reranker-rstpreid.ipynb`](notebooks/itself-identity-reranker-rstpreid.ipynb). Tên file được giữ để các link cũ tiếp tục hoạt động. Đính kèm dataset `tbps-benchmark`, bật Internet và GPU, rồi chạy từ đầu trên phiên mới. Notebook tải `best.pth` (khoảng 1,91 GB), khóa revision `d575c9691832b0a3e88d076faeba9973260956ee`, kiểm tra nạp encoder và trích token trước khi train reranker. Encoder và reranker được train chung 5 epoch (LR encoder `1e-6`, LR matcher `2e-4`, batch size 4 trong notebook); validation loss chọn checkpoint, test dùng để đo baseline/rerank và thống kê query bị hại.
 
 Repo checkpoint không cung cấp config hoặc thông tin sampler, nên chưa xác nhận checkpoint được train bằng Identity sampler. Notebook dùng ViT-B/16, ảnh 384×128; bước kiểm tra sẽ dừng nếu checkpoint không khớp. Thí nghiệm hiện dùng global CLIP similarity của encoder ITSELF để tạo candidate, chưa dùng scoring global+GRAB đầy đủ. Không commit checkpoint, dữ liệu hoặc output vào Git.
 
@@ -63,11 +63,11 @@ person-search train-reranker-rstpreid `
   --clip-model ViT-B-16 `
   --image-size 384 128 `
   --output .\outputs\rstpreid-reranker.pth `
-  --batch-size 32 `
+  --batch-size 4 `
   --epochs 5
 ```
 
-Mỗi positive là ảnh và caption ghép trong dữ liệu. Negative là caption của một person ID khác. Image/text token features được lấy từ CLIP; hai loại token được nối với một token học được và qua hai lớp fusion Transformer, sau đó classifier dự đoán match/non-match. Reranker hiện giữ CLIP frozen để train phần fusion nhỏ hơn trên dữ liệu TBPS.
+Mỗi positive là ảnh và caption ghép trong dữ liệu. Negative là caption của một person ID khác. Image/text token features được lấy từ CLIP; hai loại token được nối với một token học được và qua hai lớp fusion Transformer, sau đó classifier dự đoán match/non-match. Gradient đi qua token features để cập nhật cả encoder CLIP và matcher. Checkpoint tốt nhất lưu `encoder_state_dict` cùng trọng số matcher; evaluator tự khôi phục encoder đó. Checkpoint reranker frozen cũ vẫn đọc được.
 
 ## Đánh giá baseline và reranker
 
@@ -105,3 +105,9 @@ src/person_search/cli.py         # train/evaluate/search commands
 
 Reranker là cross-encoder nên chỉ nên dùng trên shortlist; CLIP global similarity xử lý truy xuất bước đầu. Kết quả còn phụ thuộc vào đúng model architecture, preprocessing và checkpoint. RSTPReid checkpoint cần được tạo từ train split, còn validation/test phải giữ riêng để có đánh giá đáng tin cậy.
 
+
+## Fine-tune encoder cùng reranker
+
+Encoder ảnh/văn bản hiện được mở gradient mặc định. `--encoder-learning-rate` mặc định `1e-6`; `--learning-rate` cho matcher mặc định `2e-4`. Fine-tune dùng thêm VRAM, nên notebook giảm batch size train xuống 4 (có thể giảm tiếp xuống 2).
+
+Checkpoint mới chứa cả encoder và matcher tại cùng epoch được chọn. Khi đánh giá có `--reranker-checkpoint`, cả baseline và reranked dùng encoder từ checkpoint này. Notebook còn xuất `rstpreid-original-itself-metrics.json` để so với encoder Hugging Face gốc, giúp phân biệt ảnh hưởng của fine-tune encoder và ảnh hưởng của rerank. Test không tham gia chọn checkpoint.

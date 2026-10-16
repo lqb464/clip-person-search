@@ -32,6 +32,7 @@ def command_train_reranker(args: argparse.Namespace) -> int:
         batch_size=args.batch_size,
         epochs=args.epochs,
         learning_rate=args.learning_rate,
+        encoder_learning_rate=args.encoder_learning_rate,
         num_workers=args.num_workers,
         seed=args.seed,
         model_name=args.clip_model,
@@ -245,6 +246,7 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--batch-size", type=int, default=32)
     train.add_argument("--epochs", type=int, default=5)
     train.add_argument("--learning-rate", type=float, default=2e-4)
+    train.add_argument("--encoder-learning-rate", type=float, default=1e-6, help="learning rate for jointly fine-tuning the image/text encoders")
     train.add_argument("--num-workers", type=int, default=0)
     train.add_argument("--seed", type=int, default=7)
     train.set_defaults(handler=command_train_reranker)
