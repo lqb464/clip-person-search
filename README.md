@@ -1,10 +1,10 @@
-# Text-based Person Search (ITSELF + Identity sampler + reranking)
+# Text-based Person Search (pretrained ITSELF + reranking)
 
-Project thử nghiệm text-based person search trên RSTPReid theo hai giai đoạn: train retrieval model **ITSELF + Identity sampler** từ checkpoint RSTP CLIP, rồi train một cross-modal token matcher để rerank top ứng viên. Reranker học phân loại cặp ảnh-caption cùng identity/khác identity; encoder CLIP giữ frozen trong giai đoạn này, còn fusion Transformer và classifier được train trên RSTPReid.
+Pipeline dùng checkpoint có sẵn [GenAI4ELab/itself-rstp](https://huggingface.co/GenAI4ELab/itself-rstp), giữ encoder frozen và train một cross-modal token matcher để rerank top 100 ứng viên trên RSTPReid. Không cần train lại ITSELF hoặc đính kèm model Kaggle `rstp.pth`.
 
-Notebook Kaggle hoàn chỉnh: [`notebooks/itself-identity-reranker-rstpreid.ipynb`](notebooks/itself-identity-reranker-rstpreid.ipynb). Notebook clone implementation ITSELF từ [TBPS-Sampler](https://github.com/HoangVo-Prog/tbps-sampler), chọn `val` để chọn checkpoint, train reranker, rồi so sánh baseline/rerank trên test và xuất thống kê query bị hại. Cấu hình dùng ViT-B/16, ảnh 384×128 và direct resize đúng như ITSELF.
+Notebook Kaggle: [`notebooks/itself-identity-reranker-rstpreid.ipynb`](notebooks/itself-identity-reranker-rstpreid.ipynb). Tên file được giữ để các link cũ tiếp tục hoạt động. Đính kèm dataset `tbps-benchmark`, bật Internet và GPU, rồi chạy từ đầu trên phiên mới. Notebook tải `best.pth` (khoảng 1,91 GB), khóa revision `d575c9691832b0a3e88d076faeba9973260956ee`, kiểm tra nạp encoder và trích token trước khi train reranker. Chỉ reranker được train 5 epoch; validation loss chọn checkpoint, test dùng để đo baseline/rerank và thống kê query bị hại.
 
-Lưu ý phạm vi: bước reranker hiện lấy global CLIP similarity để tạo candidate top M, sau đó dùng token matcher chấm lại. Đây chưa phải scoring `global+GRAB` đầy đủ của ITSELF; kết quả reranker cần được hiểu là thí nghiệm trên global retrieval của encoder đã train bằng ITSELF. Checkpoint, dữ liệu và output Kaggle không được commit vào Git.
+Repo checkpoint không cung cấp config hoặc thông tin sampler, nên chưa xác nhận checkpoint được train bằng Identity sampler. Notebook dùng ViT-B/16, ảnh 384×128; bước kiểm tra sẽ dừng nếu checkpoint không khớp. Thí nghiệm hiện dùng global CLIP similarity của encoder ITSELF để tạo candidate, chưa dùng scoring global+GRAB đầy đủ. Không commit checkpoint, dữ liệu hoặc output vào Git.
 
 ## Cài đặt
 
